@@ -12,6 +12,7 @@ import ttsRoutes from "./routes/tts.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { loadModel } from "./services/embedding.service.js";
 import { buildVectorStore } from "./services/vectorStore.service.js";
+import { scrapeWebsite } from "./services/scraper.service.js"; // ✅ ADDED
 
 const app = express();
 
@@ -45,14 +46,14 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("tiny"));
 
-// Keep connection alive (important for Render)
+// Keep connection alive
 app.use((req, res, next) => {
     res.setHeader("Connection", "keep-alive");
     next();
 });
 
 // ===============================
-// ❤️ HEALTH CHECK (IMPORTANT)
+// ❤️ HEALTH CHECK
 // ===============================
 app.get("/", (req, res) => {
     res.status(200).json({
@@ -63,7 +64,7 @@ app.get("/", (req, res) => {
     });
 });
 
-// 🔥 Dedicated ping route (use this to keep server warm)
+// 🔥 Ping route
 app.get("/ping", (req, res) => {
     res.status(200).send("pong");
 });
@@ -91,20 +92,34 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // ===============================
-// 🚀 START SERVER (FAST INIT)
+// 🚀 START SERVER
 // ===============================
-const PORT = process.env.PORT || 10000; // ✅ Render default
+const PORT = process.env.PORT || 10000;
 
 const startServer = async () => {
     try {
         console.log("🚀 Starting Omradix AI Server...");
 
         // ===============================
-        // ⚡ LOAD MODEL + VECTOR STORE
+        // 🌐 STEP 1: SCRAPE WEBSITE
+        // ===============================
+        try {
+            console.log("🌐 Scraping website...");
+            await scrapeWebsite();
+            console.log("✅ Scraping completed");
+        } catch (err) {
+            console.error("⚠️ Scraper failed (continuing):", err.message);
+        }
+
+        // ===============================
+        // ⚡ STEP 2: LOAD MODEL
         // ===============================
         console.log("⚡ Loading AI model...");
         await loadModel();
 
+        // ===============================
+        // 📦 STEP 3: BUILD VECTOR STORE
+        // ===============================
         console.log("⚡ Building vector store...");
         await buildVectorStore();
 
