@@ -1,218 +1,237 @@
-import { buildContext } from "../services/contextBuilder.service.js";
-import { generateResponse } from "../services/llm.service.js";
+import crypto from "crypto";
 import { getCache, setCache } from "../utils/cache.js";
 import { getSession } from "../utils/sessionStore.js";
+import { generateAIAnswer } from "../services/ai.service.js";
 
+// ============================================
+// 🔐 CACHE KEY
+// ============================================
+function generateCacheKey({ websiteId, language, query, version = "v7" }) {
+    return crypto
+        .createHash("sha256")
+        .update(`${websiteId}-${version}-${language}-${query}`)
+        .digest("hex");
+}
+
+// ============================================
+// 🧠 INTENT DETECTION
+// ============================================
+const detectIntent = (query) => {
+    const q = query.toLowerCase().trim();
+
+    if (q.includes("thank") || q.includes("thanks") || q.includes("धन्यवाद")) {
+        return "thanks";
+    }
+
+    if (["ok", "okay", "nice", "good", "great"].includes(q)) {
+        return "ack";
+    }
+
+    if (q === "hi" || q === "hello" || q === "नमस्कार") {
+        return "greeting";
+    }
+
+    if (q.includes("bye") || q.includes("goodbye") || q.includes("निघतो")) {
+        return "bye";
+    }
+
+    return "question";
+};
+
+// ============================================
+// 🎯 MAIN CONTROLLER
+// ============================================
 export const handleAsk = async (req, res) => {
     const startTime = Date.now();
 
     try {
-        const { query, sessionId } = req.body;
+        let { query, sessionId } = req.body;
 
         if (!query || typeof query !== "string") {
-            return res.status(400).json({
-                success: false,
-                message: "Valid query is required",
-            });
+            return res.json({ text: "Please ask something." });
         }
 
         if (!sessionId) {
-            return res.status(400).json({
-                success: false,
-                message: "Session ID required",
-            });
+            return res.json({ text: "Session error." });
         }
 
         const cleanedQuery = query.trim();
-        if (!cleanedQuery) {
-            return res.status(400).json({
-                success: false,
-                message: "Query cannot be empty",
-            });
+
+        if (cleanedQuery.length < 2) {
+            return res.json({ text: "Please say something clearly." });
         }
 
         const session = getSession(sessionId);
+
+        // ============================================
+        // 🌐 LANGUAGE CHECK
+        // ============================================
+        if (!session.language) {
+            return res.json({
+                text: "Please select language first.",
+                requireLanguage: true,
+            });
+        }
+
+        let lang = session.language;
         const lower = cleanedQuery.toLowerCase();
 
-        // ===============================
-        // 🚀 SYSTEM START
-        // ===============================
+        // ============================================
+        // 🔥 LANGUAGE SWITCH FIX (CRITICAL)
+        // ============================================
+
+        // 👉 SWITCH TO MARATHI
+        if (
+            lower.includes("marathi") ||
+            lower.includes("मराठी") ||
+            lower.includes("marathit")
+        ) {
+            session.language = "mr";
+
+            return res.json({
+                text: "ठीक आहे, आता मी मराठीत बोलेन 😊",
+            });
+        }
+
+        // 👉 SWITCH TO ENGLISH
+        if (
+            lower.includes("english") ||
+            lower.includes("इंग्रजी")
+        ) {
+            session.language = "en";
+
+            return res.json({
+                text: "Switched to English 😊",
+            });
+        }
+
+        // ============================================
+        // ⚡ INTENT HANDLING
+        // ============================================
+        const intent = detectIntent(cleanedQuery);
+
+        if (intent === "greeting") {
+            return res.json({
+                text:
+                    lang === "mr"
+                        ? session.userName
+                            ? `नमस्कार ${session.userName}! मी तुम्हाला कशी मदत करू शकतो?`
+                            : "नमस्कार! मी तुम्हाला कशी मदत करू शकतो?"
+                        : session.userName
+                            ? `Hello ${session.userName}! How can I help you?`
+                            : "Hello! How can I help you?",
+            });
+        }
+
+        if (intent === "ack") {
+            return res.json({
+                text: lang === "mr" ? "ठीक आहे 👍" : "Alright 👍",
+            });
+        }
+
+        if (intent === "thanks") {
+            return res.json({
+                text:
+                    lang === "mr"
+                        ? "तुमचे स्वागत आहे 😊 अजून काही मदत हवी आहे का?"
+                        : "You're welcome 😊 Let me know if you need anything else!",
+            });
+        }
+
+        if (intent === "bye") {
+            return res.json({
+                text:
+                    lang === "mr"
+                        ? "ठीक आहे, पुन्हा भेटूया! 😊"
+                        : "Alright, talk to you later! 😊",
+            });
+        }
+
+        // ============================================
+        // 👤 NAME FLOW
+        // ============================================
         if (cleanedQuery === "__start__") {
             session.stage = "ask_name";
 
             return res.json({
-                success: true,
                 text:
-                    session.language === "mr"
-                        ? "नमस्कार! मी तुमचा AI सहाय्यक आहे. तुमचे नाव काय आहे?"
+                    lang === "mr"
+                        ? "नमस्कार! मी तुमचा AI सहाय्यक आहे. तुमचं नाव काय आहे?"
                         : "Hello! I'm your AI assistant. What is your name?",
-                language: session.language,
             });
         }
 
-        // ===============================
-        // 🌐 LANGUAGE SWITCH
-        // ===============================
-        if (lower.includes("marathi") || lower.includes("मराठी")) {
-            session.language = "mr";
-
-            return res.json({
-                success: true,
-                text: "ठीक आहे, आता मी मराठीत बोलेन. तुम्हाला कशाबद्दल माहिती हवी आहे?",
-                language: "mr",
-            });
-        }
-
-        if (lower.includes("english") || lower.includes("इंग्लिश")) {
-            session.language = "en";
-
-            return res.json({
-                success: true,
-                text: "Sure, switching to English. How can I help you?",
-                language: "en",
-            });
-        }
-
-        const lang = session.language;
-
-        // ===============================
-        // 🧠 NAME DETECTION (FIXED)
-        // ===============================
         if (session.stage === "ask_name") {
-            let name = cleanedQuery
-                .replace(/my name is|i am|this is|it's|its/gi, "")
-                .trim();
+            let name = cleanedQuery;
+
+            if (lang === "mr") {
+                name = name
+                    .replace(/माझं नाव आहे|माझे नाव आहे|माझं नाव|मी आहे|मी|नाव/gi, "")
+                    .trim();
+            } else {
+                name = name
+                    .replace(/my name is|i am|this is/gi, "")
+                    .trim();
+            }
 
             name = name.split(" ")[0];
+
             name =
                 name.charAt(0).toUpperCase() +
                 name.slice(1).toLowerCase();
 
-            session.userName = name || "User";
+            session.userName = name;
             session.stage = "chat";
 
             return res.json({
-                success: true,
                 text:
                     lang === "mr"
-                        ? `${session.userName}, तुम्हाला कशाबद्दल माहिती हवी आहे?`
-                        : `Hi ${session.userName}! How can I help you today?`,
-                language: lang,
+                        ? `नमस्कार ${name}! मी तुम्हाला कशी मदत करू शकतो?`
+                        : `Hi ${name}! How can I help you today?`,
             });
         }
 
-        // ===============================
-        // 🧠 NORMAL MODE
-        // ===============================
-        const normalizedQuery = cleanedQuery
-            .toLowerCase()
-            .replace(/[^\w\s\u0900-\u097F]/g, "")
-            .trim();
+        // ============================================
+        // ⚡ CACHE
+        // ============================================
+        const cacheKey = generateCacheKey({
+            websiteId: session.websiteId || "default",
+            language: lang,
+            query: cleanedQuery.toLowerCase(),
+        });
 
-        const cacheKey = `${normalizedQuery}_${lang}`;
         const cached = getCache(cacheKey);
-
         if (cached?.text) {
-            return res.json({
-                success: true,
-                text: cached.text,
-                language: lang,
-                cached: true,
-            });
+            return res.json({ text: cached.text, cached: true });
         }
 
-        // ===============================
-        // 🧠 CONTEXT
-        // ===============================
-        const { systemPrompt, userQuery } = await buildContext(
-            cleanedQuery,
-            lang
-        );
+        // ============================================
+        // 🤖 AI CALL
+        // ============================================
+        let aiText = await generateAIAnswer(cleanedQuery, lang);
 
-        let aiText = await generateResponse(systemPrompt, userQuery);
-
-        // ===============================
-        // 🧹 CLEAN OUTPUT
-        // ===============================
-        aiText = aiText
-            ?.replace(/<think>[\s\S]*?<\/think>/gi, "")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        // ===============================
-        // ❗ EMPTY SAFE RESPONSE
-        // ===============================
-        if (!aiText || aiText.length < 3) {
+        if (!aiText || aiText.length < 5) {
             aiText =
                 lang === "mr"
-                    ? "मी तुम्हाला CARPS मधील ट्रेनिंग आणि इंटर्नशिप बद्दल माहिती देऊ शकतो."
-                    : "I can help you with CARPS training and internship details.";
+                    ? "माफ करा, मला संबंधित माहिती सापडली नाही."
+                    : "Sorry, I couldn't find that information.";
         }
 
-        // ===============================
-        // 🧠 REMOVE REPETITION (CRITICAL)
-        // ===============================
-        if (session.lastResponse === aiText) {
-            aiText =
-                lang === "mr"
-                    ? "याबद्दल आणखी माहिती सांगू शकतो. तुम्हाला कोणत्या भागात रस आहे?"
-                    : "I can explain this in more detail. What part are you interested in?";
-        }
+        // ============================================
+        // ⚡ CACHE SAVE
+        // ============================================
+        setCache(cacheKey, { text: aiText }, 900);
 
-        session.lastResponse = aiText;
-
-        // ===============================
-        // 🧠 PERSONALIZATION
-        // ===============================
-        if (session.userName) {
-            aiText = `${session.userName}, ${aiText}`;
-        }
-
-        // ===============================
-        // 🧠 SMART FOLLOW-UP (NO SPAM)
-        // ===============================
-        const followUpsEn = [
-            "Would you like more details?",
-            "I can guide you further.",
-            "Want to explore more?"
-        ];
-
-        const followUpsMr = [
-            "तुम्हाला अजून माहिती हवी आहे का?",
-            "मी आणखी मार्गदर्शन करू शकतो.",
-            "तुम्हाला आणखी जाणून घ्यायचे आहे का?"
-        ];
-
-        // avoid adding follow-up every time
-        if (Math.random() > 0.4) {
-            const followUp =
-                lang === "mr"
-                    ? followUpsMr[Math.floor(Math.random() * followUpsMr.length)]
-                    : followUpsEn[Math.floor(Math.random() * followUpsEn.length)];
-
-            aiText = `${aiText} ${followUp}`;
-        }
-
-        // ===============================
-        // 💾 CACHE
-        // ===============================
-        setCache(cacheKey, { text: aiText });
-
-        const duration = Date.now() - startTime;
-        console.log(`🧠 ASK DONE (${duration}ms)`);
+        console.log(`🧠 ASK DONE (${Date.now() - startTime}ms)`);
 
         return res.json({
-            success: true,
-            text: aiText,
-            language: lang,
+            text: session.userName
+                ? `${session.userName}, ${aiText}`
+                : aiText,
         });
 
-    } catch (error) {
-        console.error("❌ ASK ERROR:", error.message);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to process request",
-        });
+    } catch (err) {
+        console.error("❌ ASK ERROR:", err.message);
+        return res.json({ text: "Something went wrong." });
     }
 };

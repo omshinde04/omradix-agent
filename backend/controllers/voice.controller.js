@@ -3,31 +3,20 @@ import { handleAsk } from "./ask.controller.js";
 import { getSession } from "../utils/sessionStore.js";
 
 // ===============================
-// 🧠 SMART LANGUAGE DETECTION (CRITICAL)
+// 🧠 LIGHT LANGUAGE DETECTION (FAST ⚡)
 // ===============================
 const detectLanguageSmart = (text = "", prevLang = "en") => {
-    const lower = text.toLowerCase();
-
-    // Marathi script
     if (/[\u0900-\u097F]/.test(text)) return "mr";
-
-    // Marathi roman (HINGLISH FIX 🔥)
-    const marathiWords = [
-        "mahiti", "baddal", "kay", "kasa", "kashi",
-        "tumhi", "mala", "pahije", "sanga", "madat",
-        "internship", "course", "kaay", "aahe"
-    ];
-
-    if (marathiWords.some(word => lower.includes(word))) {
-        return "mr";
-    }
-
-    // Keep previous language if unsure
     return prevLang;
 };
 
+// ===============================
+// 🎤 VOICE CONTROLLER (ORIGINAL WORKING)
+// ===============================
 export const handleVoice = async (req, res) => {
     try {
+        const startTime = Date.now();
+
         console.log("\n==============================");
         console.log("🎤 /api/voice REQUEST");
 
@@ -44,7 +33,7 @@ export const handleVoice = async (req, res) => {
         const session = getSession(sessionId);
 
         // ===============================
-        // 🤖 GREETING
+        // 🤖 GREETING FLOW
         // ===============================
         if (!file) {
             console.log("🤖 Greeting flow");
@@ -56,7 +45,7 @@ export const handleVoice = async (req, res) => {
         }
 
         // ===============================
-        // 🎤 STT
+        // 🎤 STT PROCESS
         // ===============================
         console.log("🎤 Running STT...");
 
@@ -70,46 +59,29 @@ export const handleVoice = async (req, res) => {
         console.log("📝 User:", userText);
 
         // ===============================
-        // ❗ EMPTY INPUT (NO LOOP)
+        // ❗ EMPTY INPUT
         // ===============================
         if (!userText || userText.length < 2) {
-            console.log("⚠️ Empty voice input");
-
             return res.json({
                 success: true,
                 userText: "",
                 text:
                     session.language === "mr"
-                        ? "माफ करा, मला समजले नाही. कृपया पुन्हा स्पष्ट बोला."
-                        : "Sorry, I didn’t catch that. Please speak clearly.",
+                        ? "माफ करा, मला समजले नाही. कृपया पुन्हा बोला."
+                        : "Sorry, I didn’t catch that. Please speak again.",
                 language: session.language,
             });
         }
 
         // ===============================
-        // 🌐 LANGUAGE CONTROL (FIXED)
+        // 🌐 LANGUAGE (LOCKED)
         // ===============================
-        let detectedLang = detectLanguageSmart(
-            userText,
-            session.language
-        );
+        const lang = session.language;
 
-        // 🔥 FORCE LANGUAGE SWITCH COMMANDS
-        if (userText.toLowerCase().includes("marathi")) {
-            detectedLang = "mr";
-        }
-
-        if (userText.toLowerCase().includes("english")) {
-            detectedLang = "en";
-        }
-
-        // 🔥 SAVE IN SESSION (CRITICAL)
-        session.language = detectedLang;
-
-        console.log("🌐 Language:", detectedLang);
+        console.log("🌐 Language:", lang);
 
         // ===============================
-        // 🔥 FORWARD TO AI
+        // 🤖 AI RESPONSE (MAIN FLOW)
         // ===============================
         const fakeReq = {
             body: {
@@ -120,11 +92,13 @@ export const handleVoice = async (req, res) => {
 
         const fakeRes = {
             json: (data) => {
+                console.log(`⚡ Voice Done (${Date.now() - startTime}ms)`);
+
                 return res.json({
                     success: true,
                     userText,
                     text: data.text,
-                    language: session.language,
+                    language: lang,
                 });
             },
             status: (code) => res.status(code),

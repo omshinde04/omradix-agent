@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config(); // ✅ ALWAYS FIRST
+dotenv.config();
 
 import express from "express";
 import cors from "cors";
@@ -8,27 +8,28 @@ import morgan from "morgan";
 import askRoutes from "./routes/ask.routes.js";
 import voiceRoutes from "./routes/voice.routes.js";
 import ttsRoutes from "./routes/tts.routes.js";
+import languageRoutes from "./routes/language.routes.js"; // ✅ NEW
 
 import { errorHandler } from "./middlewares/error.middleware.js";
-import { loadModel } from "./services/embedding.service.js";
-import { buildVectorStore } from "./services/vectorStore.service.js";
-import { scrapeWebsite } from "./services/scraper.service.js"; // ✅ ADDED
 
 const app = express();
 
 // ===============================
-// 🔍 DEBUG ENV (SAFE PRINT)
+// 🔍 DEBUG ENV
 // ===============================
 const apiKey = process.env.SARVAM_API_KEY;
 
 if (!apiKey) {
-    console.error("❌ SARVAM_API_KEY is NOT set in .env");
+    console.error("❌ SARVAM_API_KEY is NOT set");
 } else {
-    console.log("✅ API KEY LOADED:", apiKey.substring(0, 6) + "********");
+    console.log(
+        "✅ API KEY LOADED:",
+        apiKey.substring(0, 6) + "********"
+    );
 }
 
 // ===============================
-// 🔐 GLOBAL SAFETY HANDLERS
+// 🔐 SAFETY HANDLERS
 // ===============================
 process.on("unhandledRejection", (err) => {
     console.error("❌ Unhandled Rejection:", err);
@@ -39,35 +40,30 @@ process.on("uncaughtException", (err) => {
 });
 
 // ===============================
-// 🔧 MIDDLEWARE (OPTIMIZED)
+// 🔧 MIDDLEWARE
 // ===============================
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("tiny"));
 
-// Keep connection alive
 app.use((req, res, next) => {
     res.setHeader("Connection", "keep-alive");
     next();
 });
 
 // ===============================
-// ❤️ HEALTH CHECK
+// ❤️ HEALTH
 // ===============================
 app.get("/", (req, res) => {
-    res.status(200).json({
+    res.json({
         status: "OK",
         message: "🚀 Omradix AI Assistant Running",
         uptime: process.uptime(),
-        timestamp: new Date(),
     });
 });
 
-// 🔥 Ping route
-app.get("/ping", (req, res) => {
-    res.status(200).send("pong");
-});
+app.get("/ping", (req, res) => res.send("pong"));
 
 // ===============================
 // 🛣 ROUTES
@@ -75,9 +71,10 @@ app.get("/ping", (req, res) => {
 app.use("/api/ask", askRoutes);
 app.use("/api/voice", voiceRoutes);
 app.use("/api/tts", ttsRoutes);
+app.use("/api/set-language", languageRoutes); // ✅ IMPORTANT
 
 // ===============================
-// ❌ 404 HANDLER
+// ❌ 404
 // ===============================
 app.use((req, res) => {
     res.status(404).json({
@@ -87,7 +84,7 @@ app.use((req, res) => {
 });
 
 // ===============================
-// 🔥 GLOBAL ERROR HANDLER
+// 🔥 ERROR HANDLER
 // ===============================
 app.use(errorHandler);
 
@@ -101,39 +98,30 @@ const startServer = async () => {
         console.log("🚀 Starting Omradix AI Server...");
 
         // ===============================
-        // 🌐 STEP 1: SCRAPE WEBSITE
+        // 📂 CHECK DATA FILE
         // ===============================
-        try {
-            console.log("🌐 Scraping website...");
-            await scrapeWebsite();
-            console.log("✅ Scraping completed");
-        } catch (err) {
-            console.error("⚠️ Scraper failed (continuing):", err.message);
+        console.log("📂 Checking AI data...");
+
+        const fs = await import("fs");
+        const path = await import("path");
+
+        const dataPath = path.resolve("./data/ai_ready_data.json");
+
+        if (!fs.existsSync(dataPath)) {
+            console.warn("⚠️ ai_ready_data.json NOT found");
+            console.warn("👉 Run: node scrape.js");
+        } else {
+            console.log("✅ AI data loaded");
         }
-
-        // ===============================
-        // ⚡ STEP 2: LOAD MODEL
-        // ===============================
-        console.log("⚡ Loading AI model...");
-        await loadModel();
-
-        // ===============================
-        // 📦 STEP 3: BUILD VECTOR STORE
-        // ===============================
-        console.log("⚡ Building vector store...");
-        await buildVectorStore();
 
         console.log("✅ AI system ready");
 
-        // ===============================
-        // 🚀 START SERVER
-        // ===============================
         const server = app.listen(PORT, "0.0.0.0", () => {
             console.log(`🌍 Server live on port ${PORT}`);
         });
 
         // ===============================
-        // 🛑 GRACEFUL SHUTDOWN
+        // 🛑 SHUTDOWN
         // ===============================
         const shutdown = (signal) => {
             console.log(`🛑 ${signal} received. Shutting down...`);
